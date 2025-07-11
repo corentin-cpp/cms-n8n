@@ -1,0 +1,204 @@
+import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
+import { AuthUser } from '../lib/types';
+
+export function useAuth() {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+    let mounted = true;
+
+    const initAuth = async () => {
+      try {
+        setError(null);
+        
+        // Get initial session avec retry en cas d'erreur
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.warn('Erreur de session, nettoyage du cache:', sessionError);
+          clearCorruptedData();
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+
+        if (session?.user && mounted) {
+          await loadUserProfile(session.user.id, session.user.email || '');
+        } else if (mounted) {
+          setUser(null);
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error('Erreur d\'initialisation auth:', err);
+        if (mounted) {
+          clearCorruptedData();
+          setError('Erreur d\'authentification. Cache nettoyé.');
+          setUser(null);
+          setLoading(false);
+        }
+      }
+    };
+
+    initAuth();
+
+    // Listen for auth changes avec gestion d'erreur
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (!mounted) return;
+
+        try {
+          setError(null);
+          
+          if (event === 'SIGNED_IN' && session?.user) {
+            await loadUserProfile(session.user.id, session.user.email || '');
+          } else if (event === 'SIGNED_OUT') {
+            setUser(null);
+            clearCorruptedData(); // Nettoyer lors de la déconnexion
+          } else if (event === 'TOKEN_REFRESHED') {
+            // Token rafraîchi, pas besoin de recharger le profil
+            console.log('Token rafraîchi');
+          }
+          
+          if (mounted) {
+            setLoading(false);
+          }
+        } catch (err) {
+          console.error('Erreur dans onAuthStateChange:', err);
+          if (mounted) {
+            clearCorruptedData();
+            setError('Erreur de session. Cache nettoyé.');
+            setUser(null);
+            setLoading(false);
+          }
+        }
+      }
+    );
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Fonction pour nettoyer les données corrompues du localStorage
+  const clearCorruptedData = () => {
+    try {
+      // Nettoyer les données Supabase corrompues
+      const keys = Object.keys(localStorage);
+      keys.forEach(key => {
+        if (key.startsWith('sb-') || key.includes('supabase')) {
+          localStorage.removeItem(key);
+        }
+      });
+      
+      // Nettoyer aussi le sessionStorage
+      const sessionKeys = Object.keys(sessionStorage);
+      sessionKeys.forEach(key => {
+        if (key.startsWith('sb-') || key.includes('supabase')) {
+          sessionStorage.removeItem(key);
+        }
+      });
+    } catch (err) {
+      console.warn('Erreur lors du nettoyage du cache:', err);
+    }
+  };
+
+  const loadUserProfile = async (userId: string, email: string) => {
+    try {
+      setError(null);
+      
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle(); // Utiliser maybeSingle au lieu de single
+
+      if (profileError && profileError.code !== 'PGRST116') {
+        // PGRST116 = pas de ligne trouvée, ce qui est ok
+        throw profileError;
+      }
+
+      setUser({
+        id: userId,
+        email,
+        profile: profile || undefined,
+      });
+    } catch (error) {
+      console.error('Error loading profile:', error);
+      // Créer un utilisateur basique même si le profil échoue
+      setUser({ 
+        id: userId, 
+        email,
+        profile: undefined 
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const signIn = async (email: string, password: string) => {
+    try {
+      setError(null);
+      setLoading(true);
+      
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error signing in:', error);
+      setError(error instanceof Error ? error.message : 'Erreur de connexion');
+      throw error;
+    }
+  };
+
+  const signUp = async (email: string, password: string, fullName: string) => {
+    try {
+      setError(null);
+      setLoading(true);
+      
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { full_name: fullName },
+        },
+      });
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error signing up:', error);
+      setError(error instanceof Error ? error.message : 'Erreur lors de l\'inscription');
+      throw error;
+    }
+  };
+
+  const signOut = async () => {
+    try {
+      setError(null);
+      clearCorruptedData(); // Nettoyer avant la déconnexion
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error signing out:', error);
+      setError(error instanceof Error ? error.message : 'Erreur de déconnexion');
+      // Forcer le nettoyage même en cas d'erreur
+      clearCorruptedData();
+      setUser(null);
+    }
+  };
+
+  return {
+    user,
+    loading,
+    error,
+    signIn,
+    signUp,
+    signOut,
+  };
+}
