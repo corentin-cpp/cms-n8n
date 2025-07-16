@@ -242,6 +242,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error('Error signing in:', error);
       setError(error instanceof Error ? error.message : 'Erreur de connexion');
+      setLoading(false);
       throw error;
     }
   };
@@ -263,6 +264,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error('Error signing up:', error);
       setError(error instanceof Error ? error.message : 'Erreur lors de l\'inscription');
+      setLoading(false);
       throw error;
     }
   };

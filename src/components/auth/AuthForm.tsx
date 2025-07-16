@@ -3,6 +3,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Card } from '../ui/Card';
+import { ErrorNotification } from '../ui/ErrorNotification';
 
 export function AuthForm() {
   const [isLogin, setIsLogin] = useState(true);
@@ -25,8 +26,9 @@ export function AuthForm() {
       } else {
         await signUp(email, password, fullName);
       }
-    } catch (err: any) {
-      setError(err.message || 'Une erreur est survenue');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Une erreur est survenue';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -54,7 +56,7 @@ export function AuthForm() {
               required
             />
           )}
-          
+
           <Input
             label="Email"
             type="email"
@@ -62,7 +64,7 @@ export function AuthForm() {
             onChange={(e) => setEmail(e.target.value)}
             required
           />
-          
+
           <Input
             label="Mot de passe"
             type="password"
@@ -72,9 +74,10 @@ export function AuthForm() {
           />
 
           {error && (
-            <div className="bg-red-500/10 border border-red-500 text-red-400 px-4 py-3 rounded-lg">
-              {error}
-            </div>
+            <ErrorNotification
+              error={error}
+              onClose={() => setError('')}
+            />
           )}
 
           <Button
