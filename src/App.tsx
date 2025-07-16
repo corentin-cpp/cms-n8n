@@ -1,5 +1,5 @@
-import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
 import { useAuth } from './hooks/useAuth';
 import { AuthForm } from './components/auth/AuthForm';
 import { Layout } from './components/layout/Layout';
@@ -9,7 +9,7 @@ import { DataView } from './pages/DataView';
 import { Automations } from './pages/Automations';
 import { AutomationManager } from './pages/AutomationManager';
 
-function App() {
+function AppContent() {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -36,6 +36,14 @@ function App() {
         </Routes>
       </Layout>
     </Router>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 

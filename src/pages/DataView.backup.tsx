@@ -3,7 +3,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Table, TableHeader, TableHeaderCell, TableBody, TableRow, TableCell } from '../components/ui/Table';
 import { supabase } from '../lib/supabase';
-import { useAuth } from '../hooks/useAuth';
+import { useAuth } from '../hooks/useAuthOptimized';
 import { formatDate } from '../lib/utils';
 import { CSVImport } from '../lib/types';
 import { Database, Eye, Trash2, Download } from 'lucide-react';

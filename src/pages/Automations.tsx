@@ -5,20 +5,25 @@ import { Table, TableHeader, TableHeaderCell, TableBody, TableRow, TableCell } f
 import { LoadingState, LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { ErrorNotification } from '../components/ui/ErrorNotification';
 import { SuccessNotification } from '../components/ui/SuccessNotification';
+import { Modal } from '../components/ui/Modal';
 import { AutomationForm } from '../components/automations/AutomationForm';
 import { AutomationDetails } from '../components/automations/AutomationDetails';
 import { useAutomations } from '../hooks/useAutomations';
 import { formatDate } from '../lib/utils';
 import { Automation } from '../lib/types';
 import { Play, Pause, Activity, AlertCircle, CheckCircle, RefreshCw, Plus, Eye, Edit, Trash2 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../hooks/useAuth';
+import Papa from 'papaparse';
+import { json2csv } from 'json-2-csv';
 
 export function Automations() {
   const {
     automations,
     executions,
-    loading,
+    loadingPage,
     executing,
-    error,
+    errorPage,
     executeAutomation,
     toggleAutomation,
     createAutomation,
@@ -26,7 +31,7 @@ export function Automations() {
     deleteAutomation,
     refreshData,
   } = useAutomations();
-  
+  const { user } = useAuth();
   const [localError, setLocalError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -34,10 +39,16 @@ export function Automations() {
   const [selectedAutomation, setSelectedAutomation] = useState<Automation | null>(null);
   const [formLoading, setFormLoading] = useState(false);
 
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false)
+  const [messageImport, setMessageImport] = useState<string | null>(null);
+  const [executionId, setExecutionId] = useState<string | null>(null);
+
   const handleExecuteAutomation = async (automation: Automation) => {
     try {
-      setLocalError(null);
       await executeAutomation(automation);
+      setLocalError(null);
       setSuccessMessage(`Automatisation "${automation.name}" exécutée avec succès`);
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
@@ -77,7 +88,7 @@ export function Automations() {
 
   const handleUpdateAutomation = async (automationData: Partial<Automation>) => {
     if (!editingAutomation) return;
-    
+
     setFormLoading(true);
     try {
       setLocalError(null);
@@ -123,6 +134,93 @@ export function Automations() {
     setEditingAutomation(null);
   };
 
+  const handleImportCsv = () => {
+    setShowImportModal(true);
+  }
+
+  const handleImportSubmit = async () => {
+    console.log('Importing execution data:', executionId);
+    //Convert json to csv
+    const {data: parseData, error: parseError} = await supabase
+    .from('automation_executions')
+    .select('*').eq('id', executionId);
+    if( parseError) {
+      setError(`Erreur lors de la récupération des données d'exécution : ${parseError.message}`);
+      return;
+    }
+
+    console.log('Parsed data:', parseData);
+
+    let columns: string[] = [];
+    let data: Record<string, unknown>[] = [];
+
+
+    const csv = json2csv(parseData[0]?.execution_data ?? []);
+
+    console.log('CSV data:', csv);
+
+    await new Promise<void>((resolve, reject) => {
+      Papa.parse<Record<string, unknown>>(csv, {
+        header: true,
+        skipEmptyLines: true,
+        worker: false,
+        complete: (results) => {
+          columns = results.meta.fields || [];
+          data = results.data;
+          resolve();
+        },
+        error: (err) => {
+          reject(err);
+        }
+      });
+    });
+    const totalRows = data.length;
+    const validRows = data.filter(row => Object.values(row).some(value => value && String(value).trim() !== ''));
+    // Limite de lignes
+    if (totalRows > 10000) {
+      setError('Le fichier contient trop de lignes (maximum 10 000). Divisez-le en plusieurs fichiers plus petits');
+      setLoading(false);
+      return;
+    }
+    if (columns.length === 0) {
+      setError('Aucune colonne détectée');
+      setLoading(false);
+      return;
+    }
+    if (validRows.length === 0) {
+      setError('Aucune ligne contenant des données valides trouvée');
+      setLoading(false);
+      return;
+    }
+    if (validRows.length < totalRows * 0.5) {
+      setError(`Trop de lignes vides ou invalides (${totalRows - validRows.length} sur ${totalRows}). Vérifiez le format de votre fichier`);
+      setLoading(false);
+      return;
+    }
+    // Enregistrement en base
+    const { error: insertError } = await supabase
+      .from('csv_imports')
+      .insert({
+        user_id: user?.id,
+        name: Date.now().toString() + "_converter",
+        filename: Date.now().toString() + "_converter",
+        columns,
+        data: validRows,
+      });
+    if (insertError) {
+      console.error('Database error:', insertError);
+      if (insertError.code === '23505') {
+        setError('Un import avec ce nom existe déjà. Choisissez un autre nom');
+      } else if (insertError.message.includes('permission')) {
+        setError('Vous n\'avez pas les permissions pour effectuer cet import');
+      } else {
+        setError(`Erreur de base de données : ${insertError.message}`);
+      }
+      setMessageImport("Import terminé sans erreurs");
+      return;
+    }
+  }
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'success':
@@ -136,20 +234,20 @@ export function Automations() {
     }
   };
 
-  if (loading) {
+  if (loadingPage) {
     return <LoadingState message="Chargement des automatisations..." />;
   }
 
   if (showForm) {
     return (
       <div className="space-y-6">
-        {(error || localError) && (
+        {(errorPage || localError) && (
           <ErrorNotification
-            error={error || localError || ''}
+            error={errorPage || localError || ''}
             onClose={() => setLocalError(null)}
           />
         )}
-        
+
         <AutomationForm
           automation={editingAutomation || undefined}
           onSave={editingAutomation ? handleUpdateAutomation : handleCreateAutomation}
@@ -162,9 +260,9 @@ export function Automations() {
 
   return (
     <div className="space-y-6">
-      {(error || localError) && (
+      {(errorPage || localError) && (
         <ErrorNotification
-          error={error || localError || ''}
+          error={errorPage || localError || ''}
           onClose={() => setLocalError(null)}
         />
       )}
@@ -258,22 +356,20 @@ export function Automations() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <span className={`inline-block px-2 py-1 text-xs font-medium rounded ${
-                          automation.webhook_method === 'GET' ? 'bg-green-900 text-green-300' :
+                        <span className={`inline-block px-2 py-1 text-xs font-medium rounded ${automation.webhook_method === 'GET' ? 'bg-green-900 text-green-300' :
                           automation.webhook_method === 'POST' ? 'bg-blue-900 text-blue-300' :
-                          automation.webhook_method === 'PUT' ? 'bg-yellow-900 text-yellow-300' :
-                          automation.webhook_method === 'DELETE' ? 'bg-red-900 text-red-300' :
-                          'bg-purple-900 text-purple-300'
-                        }`}>
+                            automation.webhook_method === 'PUT' ? 'bg-yellow-900 text-yellow-300' :
+                              automation.webhook_method === 'DELETE' ? 'bg-red-900 text-red-300' :
+                                'bg-purple-900 text-purple-300'
+                          }`}>
                           {automation.webhook_method}
                         </span>
                       </TableCell>
                       <TableCell>
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          automation.is_active
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-gray-100 text-gray-800'
-                        }`}>
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${automation.is_active
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-gray-100 text-gray-800'
+                          }`}>
                           {automation.is_active ? 'Active' : 'Inactive'}
                         </span>
                       </TableCell>
@@ -352,6 +448,7 @@ export function Automations() {
                     <TableHeaderCell>Automatisation</TableHeaderCell>
                     <TableHeaderCell>Statut</TableHeaderCell>
                     <TableHeaderCell>Date</TableHeaderCell>
+                    <TableHeaderCell>Result</TableHeaderCell>
                     <TableHeaderCell>Erreur</TableHeaderCell>
                   </TableRow>
                 </TableHeader>
@@ -375,6 +472,18 @@ export function Automations() {
                         </div>
                       </TableCell>
                       <TableCell>
+                        <>
+                          <div className="text-red-400 max-w-md truncate">
+                            <Button onClick={() => {
+                              setExecutionId(execution.id);
+                              handleImportCsv();
+                            }}>
+                              Ajouter en CSV
+                            </Button>
+                          </div>
+                        </>
+                      </TableCell>
+                      <TableCell>
                         <div className="text-red-400 max-w-md truncate">
                           {execution.error_message || '-'}
                         </div>
@@ -387,6 +496,37 @@ export function Automations() {
           </Card>
         </>
       )}
+
+      {/* Modal d'import CSV */}
+      <Modal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        title="Import CSV"
+        size="lg"
+      >
+        {loading && (
+          <LoadingSpinner size='sm' />
+        )}
+        <div className="space-y-4">
+          {error && (
+            <p className='text-red'>{error}</p>
+          )}
+          {messageImport && (
+            <p className='text-green'>{messageImport}</p>
+          )}
+          <div className="flex justify-end space-x-3 pt-4">
+            <Button
+              variant="ghost"
+              onClick={() => setShowImportModal(false)}
+            >
+              Annuler
+            </Button>
+            <Button variant="primary" onClick={handleImportSubmit}>
+              Importer
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

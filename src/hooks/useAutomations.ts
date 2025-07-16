@@ -6,9 +6,9 @@ import { useAuth } from './useAuth';
 interface UseAutomationsReturn {
   automations: Automation[];
   executions: AutomationExecutionWithName[];
-  loading: boolean;
+  loadingPage: boolean;
   executing: string | null;
-  error: string | null;
+  errorPage: string | null;
   executeAutomation: (automation: Automation) => Promise<void>;
   toggleAutomation: (automation: Automation) => Promise<void>;
   createAutomation: (automation: Partial<Automation>) => Promise<void>;
@@ -21,9 +21,9 @@ export function useAutomations(): UseAutomationsReturn {
   const { user } = useAuth();
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [executions, setExecutions] = useState<AutomationExecutionWithName[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingPage, setLoading] = useState(true);
   const [executing, setExecuting] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [errorPage, setError] = useState<string | null>(null);
 
   const loadAutomations = useCallback(async () => {
     if (!user) return;
@@ -202,7 +202,7 @@ export function useAutomations(): UseAutomationsReturn {
             }
           : exec
       ));
-
+      return execution.id;
     } catch (error) {
       console.error('Error executing automation:', error);
       const errorMessage = error instanceof Error ? error.message : 'Erreur d\'exécution';
@@ -339,9 +339,9 @@ export function useAutomations(): UseAutomationsReturn {
   return {
     automations,
     executions,
-    loading,
+    loadingPage,
     executing,
-    error,
+    errorPage,
     executeAutomation,
     toggleAutomation,
     createAutomation,

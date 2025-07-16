@@ -13,6 +13,7 @@
     "@supabase/supabase-js": "^2.50.4",
     "@types/react-router-dom": "^5.3.3",
     "clsx": "^2.1.1",
+    "json-2-csv": "^5.5.9",
     "lucide-react": "^0.344.0",
     "papaparse": "^5.5.3",
     "react": "^18.3.1",

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -23,13 +23,7 @@ export function AutomationManager() {
     is_active: true,
   });
 
-  useEffect(() => {
-    if (user) {
-      loadAutomations();
-    }
-  }, [user]);
-
-  const loadAutomations = async () => {
+  const loadAutomations = useCallback(async () => {
     if (!user) return;
 
     try {
@@ -46,7 +40,13 @@ export function AutomationManager() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      loadAutomations();
+    }
+  }, [user, loadAutomations]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

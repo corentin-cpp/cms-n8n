@@ -4,6 +4,7 @@ import { Input } from '../components/ui/Input';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { ErrorNotification } from '../components/ui/ErrorNotification';
 import { SuccessNotification } from '../components/ui/SuccessNotification';
+import { useAuth } from '../hooks/useAuthOptimized';
 import { useCSVImport } from '../hooks/useCSVImport';
 import { Upload, FileText, CheckCircle } from 'lucide-react';
 

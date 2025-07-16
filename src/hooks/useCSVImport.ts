@@ -126,79 +126,96 @@ export function useCSVImport(): UseCSVImportReturn {
     setLoading(true);
     setError('');
     setProgress(0);
-    // Optimisation : parsing synchrone pour les petits fichiers (<1000 lignes)
-    const fileText = await file.text();
-    let columns: string[] = [];
-    let data: Record<string, unknown>[] = [];
-    await new Promise<void>((resolve, reject) => {
-      Papa.parse<Record<string, unknown>>(fileText, {
-        header: true,
-        skipEmptyLines: true,
-        worker: false,
-        complete: (results) => {
-          columns = results.meta.fields || [];
-          data = results.data;
-          resolve();
-        },
-        error: (err) => {
-          reject(err);
-        }
-      });
-    });
-    const totalRows = data.length;
-    const validRows = data.filter(row => Object.values(row).some(value => value && String(value).trim() !== ''));
-    // Limite de lignes
-    if (totalRows > 10000) {
-      setError('Le fichier contient trop de lignes (maximum 10 000). Divisez-le en plusieurs fichiers plus petits');
+    let timeoutId: NodeJS.Timeout | null = null;
+    try {
+      // Timeout de sécurité : stoppe l'import après 20 secondes
+      await Promise.race([
+        (async () => {
+          const fileText = await file.text();
+          let columns: string[] = [];
+          let data: Record<string, unknown>[] = [];
+          await new Promise<void>((resolve, reject) => {
+            Papa.parse<Record<string, unknown>>(fileText, {
+              header: true,
+              skipEmptyLines: true,
+              worker: false,
+              complete: (results) => {
+                columns = results.meta.fields || [];
+                data = results.data;
+                resolve();
+              },
+              error: (err) => {
+                reject(err);
+              }
+            });
+          });
+          const totalRows = data.length;
+          const validRows = data.filter(row => Object.values(row).some(value => value && String(value).trim() !== ''));
+          // Limite de lignes
+          if (totalRows > 10000) {
+            setError('Le fichier contient trop de lignes (maximum 10 000). Divisez-le en plusieurs fichiers plus petits');
+            setLoading(false);
+            return;
+          }
+          if (columns.length === 0) {
+            setError('Aucune colonne détectée');
+            setLoading(false);
+            return;
+          }
+          if (validRows.length === 0) {
+            setError('Aucune ligne contenant des données valides trouvée');
+            setLoading(false);
+            return;
+          }
+          if (validRows.length < totalRows * 0.5) {
+            setError(`Trop de lignes vides ou invalides (${totalRows - validRows.length} sur ${totalRows}). Vérifiez le format de votre fichier`);
+            setLoading(false);
+            return;
+          }
+          // Enregistrement en base
+          const { error: insertError } = await supabase
+            .from('csv_imports')
+            .insert({
+              user_id: user.id,
+              name: importName.trim(),
+              filename: file.name,
+              columns,
+              data: validRows,
+            });
+          if (insertError) {
+            console.error('Database error:', insertError);
+            if (insertError.code === '23505') {
+              setError('Un import avec ce nom existe déjà. Choisissez un autre nom');
+            } else if (insertError.message.includes('permission')) {
+              setError('Vous n\'avez pas les permissions pour effectuer cet import');
+            } else {
+              setError(`Erreur de base de données : ${insertError.message}`);
+            }
+            setLoading(false);
+            return;
+          }
+          setSuccess(true);
+          setFile(null);
+          setImportName('');
+          setPreview(null);
+          setProgress(100);
+          setTimeout(() => {
+            setSuccess(false);
+          }, 3000);
+          setLoading(false);
+        })(),
+        new Promise((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new Error('Import trop long ou bloqué. Veuillez réessayer ou vérifier le fichier.'));
+          }, 20000);
+        })
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur inattendue pendant l\'importation');
       setLoading(false);
-      return;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
-    if (columns.length === 0) {
-      setError('Aucune colonne détectée');
-      setLoading(false);
-      return;
-    }
-    if (validRows.length === 0) {
-      setError('Aucune ligne contenant des données valides trouvée');
-      setLoading(false);
-      return;
-    }
-    if (validRows.length < totalRows * 0.5) {
-      setError(`Trop de lignes vides ou invalides (${totalRows - validRows.length} sur ${totalRows}). Vérifiez le format de votre fichier`);
-      setLoading(false);
-      return;
-    }
-    // Enregistrement en base
-    const { error: insertError } = await supabase
-      .from('csv_imports')
-      .insert({
-        user_id: user.id,
-        name: importName.trim(),
-        filename: file.name,
-        columns,
-        data: validRows,
-      });
-    if (insertError) {
-      console.error('Database error:', insertError);
-      if (insertError.code === '23505') {
-        setError('Un import avec ce nom existe déjà. Choisissez un autre nom');
-      } else if (insertError.message.includes('permission')) {
-        setError('Vous n\'avez pas les permissions pour effectuer cet import');
-      } else {
-        setError(`Erreur de base de données : ${insertError.message}`);
-      }
-      setLoading(false);
-      return;
-    }
-    setSuccess(true);
-    setFile(null);
-    setImportName('');
-    setPreview(null);
-    setProgress(100);
-    setTimeout(() => {
-      setSuccess(false);
-    }, 3000);
-    setLoading(false);
   }, [file, user, importName]);
 
   const resetForm = useCallback(() => {

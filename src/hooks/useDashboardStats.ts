@@ -41,15 +41,15 @@ export function useDashboardStats(): UseDashboardStatsReturn {
         supabase
           .from('csv_imports')
           .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id),
+          .eq('user_id', user.id).range(0, 5),
         supabase
           .from('automations')
           .select('id, is_active', { count: 'exact' })
-          .eq('user_id', user.id),
+          .eq('user_id', user.id).range(0, 5),
         supabase
           .from('automation_executions')
           .select('id', { count: 'exact', head: true })
-          .gte('created_at', yesterday),
+          .gte('created_at', yesterday).range(0, 5),
       ]);
 
       // Traiter les résultats
