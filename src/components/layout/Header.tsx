@@ -12,7 +12,7 @@ export function Header() {
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center">
             <h1 className="text-xl font-bold text-white">
-              CRM <span className="text-[#24B2A4]">N8N</span>
+              Y<span className="text-[#24B2A4]">NIGMA</span>
             </h1>
           </div>
           

@@ -169,7 +169,7 @@ export function Automations() {
           data = results.data;
           resolve();
         },
-        error: (err) => {
+        error: (err: unknown) => {
           reject(err);
         }
       });
@@ -238,25 +238,7 @@ export function Automations() {
     return <LoadingState message="Chargement des automatisations..." />;
   }
 
-  if (showForm) {
-    return (
-      <div className="space-y-6">
-        {(errorPage || localError) && (
-          <ErrorNotification
-            error={errorPage || localError || ''}
-            onClose={() => setLocalError(null)}
-          />
-        )}
-
-        <AutomationForm
-          automation={editingAutomation || undefined}
-          onSave={editingAutomation ? handleUpdateAutomation : handleCreateAutomation}
-          onCancel={handleCancelForm}
-          loading={formLoading}
-        />
-      </div>
-    );
-  }
+  // Supprimé le return conditionnel qui causait le rafraîchissement
 
   return (
     <div className="space-y-6">
@@ -526,6 +508,21 @@ export function Automations() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      {/* Modal pour le formulaire d'automatisation */}
+      <Modal
+        isOpen={showForm}
+        onClose={handleCancelForm}
+        title={editingAutomation ? 'Modifier l\'automatisation' : 'Nouvelle automatisation'}
+        size="xl"
+      >
+        <AutomationForm
+          automation={editingAutomation || undefined}
+          onSave={editingAutomation ? handleUpdateAutomation : handleCreateAutomation}
+          onCancel={handleCancelForm}
+          loading={formLoading}
+        />
       </Modal>
     </div>
   );

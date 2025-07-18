@@ -1,10 +1,8 @@
 import { useState } from 'react';
-import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
 import { Automation } from '../../lib/types';
-import { X } from 'lucide-react';
 
 interface AutomationFormProps {
   automation?: Automation;
@@ -68,16 +66,7 @@ export function AutomationForm({ automation, onSave, onCancel, loading = false }
   const httpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] as const;
 
   return (
-    <Card className="max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold text-white">
-          {automation ? 'Modifier l\'automatisation' : 'Nouvelle automatisation'}
-        </h3>
-        <Button variant="ghost" size="sm" onClick={onCancel}>
-          <X className="w-4 h-4" />
-        </Button>
-      </div>
-
+    <div className="space-y-6">
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
@@ -223,6 +212,6 @@ export function AutomationForm({ automation, onSave, onCancel, loading = false }
           </Button>
         </div>
       </form>
-    </Card>
+    </div>
   );
 }
