@@ -45,49 +45,57 @@
     - Users can only access their own data
 */
 
--- Create profiles table
-CREATE TABLE IF NOT EXISTS profiles (
-  id uuid PRIMARY KEY REFERENCES auth.users ON DELETE CASCADE,
-  email text UNIQUE NOT NULL,
-  full_name text,
-  role text DEFAULT 'member' CHECK (role IN ('admin', 'member')),
-  created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now()
+-- Create tables
+CREATE TABLE IF NOT EXISTS public.automation_executions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  automation_id uuid NOT NULL,
+  status text DEFAULT 'running'::text CHECK (status = ANY (ARRAY['success'::text, 'error'::text, 'running'::text])),
+  execution_data jsonb DEFAULT '{}'::jsonb,
+  error_message text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT automation_executions_pkey PRIMARY KEY (id),
+  CONSTRAINT automation_executions_automation_id_fkey FOREIGN KEY (automation_id) REFERENCES public.automations(id)
 );
 
--- Create csv_imports table
-CREATE TABLE IF NOT EXISTS csv_imports (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+CREATE TABLE IF NOT EXISTS public.automations (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
   name text NOT NULL,
-  filename text NOT NULL,
-  columns jsonb NOT NULL DEFAULT '[]',
-  data jsonb NOT NULL DEFAULT '[]',
-  created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now()
-);
-
--- Create automations table
-CREATE TABLE IF NOT EXISTS automations (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
-  name text NOT NULL,
-  description text DEFAULT '',
+  description text DEFAULT ''::text,
   n8n_workflow_id text,
   webhook_url text,
   is_active boolean DEFAULT true,
-  created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now()
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  webhook_method character varying DEFAULT 'POST'::character varying,
+  webhook_headers jsonb DEFAULT '{}'::jsonb,
+  webhook_params jsonb DEFAULT '{}'::jsonb,
+  CONSTRAINT automations_pkey PRIMARY KEY (id),
+  CONSTRAINT automations_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
 );
 
--- Create automation_executions table
-CREATE TABLE IF NOT EXISTS automation_executions (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  automation_id uuid REFERENCES automations(id) ON DELETE CASCADE NOT NULL,
-  status text DEFAULT 'running' CHECK (status IN ('success', 'error', 'running')),
-  execution_data jsonb DEFAULT '{}',
-  error_message text,
-  created_at timestamptz DEFAULT now()
+CREATE TABLE IF NOT EXISTS public.csv_imports (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  name text NOT NULL,
+  filename text NOT NULL,
+  columns jsonb NOT NULL DEFAULT '[]'::jsonb,
+  data jsonb NOT NULL DEFAULT '[]'::jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT csv_imports_pkey PRIMARY KEY (id),
+  CONSTRAINT csv_imports_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+);
+
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id uuid NOT NULL,
+  email text NOT NULL UNIQUE,
+  full_name text,
+  role text DEFAULT 'member'::text CHECK (role = ANY (ARRAY['admin'::text, 'member'::text])),
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
 );
 
 -- Enable RLS
@@ -112,67 +120,68 @@ CREATE POLICY "Users can insert own profile"
   TO authenticated
   WITH CHECK (auth.uid() = id);
 
-CREATE POLICY "Users can view own CSV imports"
+-- CSV imports - Accès complet pour tous les utilisateurs authentifiés
+CREATE POLICY "Users can view all CSV imports"
   ON csv_imports FOR SELECT
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING (true);
 
-CREATE POLICY "Users can insert own CSV imports"
+CREATE POLICY "Users can insert CSV imports"
   ON csv_imports FOR INSERT
   TO authenticated
-  WITH CHECK (auth.uid() = user_id);
+  WITH CHECK (true);
 
-CREATE POLICY "Users can update own CSV imports"
+CREATE POLICY "Users can update all CSV imports"
   ON csv_imports FOR UPDATE
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING (true);
 
-CREATE POLICY "Users can delete own CSV imports"
+CREATE POLICY "Users can delete all CSV imports"
   ON csv_imports FOR DELETE
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING (true);
 
-CREATE POLICY "Users can view own automations"
+-- Automations - Accès complet pour tous les utilisateurs authentifiés
+CREATE POLICY "Users can view all automations"
   ON automations FOR SELECT
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING (true);
 
-CREATE POLICY "Users can insert own automations"
+CREATE POLICY "Users can insert automations"
   ON automations FOR INSERT
   TO authenticated
-  WITH CHECK (auth.uid() = user_id);
+  WITH CHECK (true);
 
-CREATE POLICY "Users can update own automations"
+CREATE POLICY "Users can update all automations"
   ON automations FOR UPDATE
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING (true);
 
-CREATE POLICY "Users can delete own automations"
+CREATE POLICY "Users can delete all automations"
   ON automations FOR DELETE
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING (true);
 
-CREATE POLICY "Users can view executions of own automations"
+-- Automation executions - Accès complet pour tous les utilisateurs authentifiés
+CREATE POLICY "Users can view all automation executions"
   ON automation_executions FOR SELECT
   TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1 FROM automations 
-      WHERE automations.id = automation_executions.automation_id 
-      AND automations.user_id = auth.uid()
-    )
-  );
+  USING (true);
 
-CREATE POLICY "Users can insert executions for own automations"
+CREATE POLICY "Users can insert automation executions"
   ON automation_executions FOR INSERT
   TO authenticated
-  WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM automations 
-      WHERE automations.id = automation_executions.automation_id 
-      AND automations.user_id = auth.uid()
-    )
-  );
+  WITH CHECK (true);
+
+CREATE POLICY "Users can update all automation executions"
+  ON automation_executions FOR UPDATE
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Users can delete all automation executions"
+  ON automation_executions FOR DELETE
+  TO authenticated
+  USING (true);
 
 -- Create function to handle user creation
 CREATE OR REPLACE FUNCTION public.handle_new_user()

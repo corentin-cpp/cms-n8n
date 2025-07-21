@@ -6,3 +6,5 @@ ADD COLUMN webhook_params jsonb DEFAULT '{}';
 
 -- Mettre à jour les automatisations existantes pour avoir POST par défaut
 UPDATE automations SET webhook_method = 'POST' WHERE webhook_method IS NULL;
+
+

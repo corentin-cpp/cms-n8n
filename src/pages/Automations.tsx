@@ -141,10 +141,10 @@ export function Automations() {
   const handleImportSubmit = async () => {
     console.log('Importing execution data:', executionId);
     //Convert json to csv
-    const {data: parseData, error: parseError} = await supabase
-    .from('automation_executions')
-    .select('*').eq('id', executionId);
-    if( parseError) {
+    const { data: parseData, error: parseError } = await supabase
+      .from('automation_executions')
+      .select('*').eq('id', executionId);
+    if (parseError) {
       setError(`Erreur lors de la récupération des données d'exécution : ${parseError.message}`);
       return;
     }
@@ -155,25 +155,29 @@ export function Automations() {
     let data: Record<string, unknown>[] = [];
 
 
-    const csv = json2csv(parseData[0]?.execution_data ?? []);
+    try {
+      const csv = json2csv(parseData[0]?.execution_data ?? []);
 
-    console.log('CSV data:', csv);
-
-    await new Promise<void>((resolve, reject) => {
-      Papa.parse<Record<string, unknown>>(csv, {
-        header: true,
-        skipEmptyLines: true,
-        worker: false,
-        complete: (results) => {
-          columns = results.meta.fields || [];
-          data = results.data;
-          resolve();
-        },
-        error: (err: unknown) => {
-          reject(err);
-        }
+      await new Promise<void>((resolve, reject) => {
+        Papa.parse<Record<string, unknown>>(csv, {
+          header: true,
+          skipEmptyLines: true,
+          worker: false,
+          complete: (results) => {
+            columns = results.meta.fields || [];
+            data = results.data;
+            resolve();
+          },
+          error: (err: unknown) => {
+            reject(err);
+          }
+        });
       });
-    });
+    } catch (err) {
+      setError(`Erreur lors de la conversion des données en CSV : ${err instanceof Error ? err.message : 'Erreur inconnue'}`);
+      return;
+    }
+    
     const totalRows = data.length;
     const validRows = data.filter(row => Object.values(row).some(value => value && String(value).trim() !== ''));
     // Limite de lignes
