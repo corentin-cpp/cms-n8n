@@ -91,6 +91,7 @@ export function useAutomations(): UseAutomationsReturn {
 
     setExecuting(automation.id);
     setError(null);
+    let executionId: string | null = null;
 
     try {
       // Create execution record
@@ -105,6 +106,8 @@ export function useAutomations(): UseAutomationsReturn {
         .single();
 
       if (executionError) throw executionError;
+      
+      executionId = execution.id;
 
       // Mettre à jour l'état local immédiatement pour un feedback rapide
       setExecutions(prev => [{
@@ -121,6 +124,9 @@ export function useAutomations(): UseAutomationsReturn {
         },
       };
 
+      let response: Response;
+      let result: Record<string, unknown>;
+
       // Add body for POST, PUT, PATCH methods
       if (['POST', 'PUT', 'PATCH'].includes(automation.webhook_method)) {
         requestOptions.body = JSON.stringify({
@@ -129,6 +135,8 @@ export function useAutomations(): UseAutomationsReturn {
           timestamp: new Date().toISOString(),
           ...automation.webhook_params,
         });
+        
+        response = await fetch(automation.webhook_url, requestOptions);
       } else {
         // For GET, DELETE, add params as query string
         const url = new URL(automation.webhook_url);
@@ -144,40 +152,22 @@ export function useAutomations(): UseAutomationsReturn {
         requestOptions.headers = {
           ...automation.webhook_headers,
         };
-        // Use the modified URL
-        const response = await fetch(url.toString(), requestOptions);
-        const result = await response.json();
-
-        // Update execution status
-        const { error: updateError } = await supabase
-          .from('automation_executions')
-          .update({
-            status: response.ok ? 'success' : 'error',
-            execution_data: result,
-            error_message: response.ok ? null : result.error || 'Erreur inconnue',
-          })
-          .eq('id', execution.id);
-
-        if (updateError) throw updateError;
-
-        // Mettre à jour l'état local
-        setExecutions(prev => prev.map(exec => 
-          exec.id === execution.id 
-            ? {
-                ...exec,
-                status: response.ok ? 'success' : 'error',
-                execution_data: result,
-                error_message: response.ok ? null : result.error || 'Erreur inconnue',
-              }
-            : exec
-        ));
         
-        return;
+        response = await fetch(url.toString(), requestOptions);
       }
 
-      const response = await fetch(automation.webhook_url, requestOptions);
+      // Parse response
+      try {
+        result = await response.json();
+      } catch {
+        result = { message: await response.text() };
+      }
 
-      const result = await response.json();
+      const errorMessage = response.ok ? 
+        null : 
+        (result as Record<string, unknown>)?.error as string || 
+        (result as Record<string, unknown>)?.message as string || 
+        `Erreur HTTP ${response.status}`;
 
       // Update execution status
       const { error: updateError } = await supabase
@@ -185,7 +175,7 @@ export function useAutomations(): UseAutomationsReturn {
         .update({
           status: response.ok ? 'success' : 'error',
           execution_data: result,
-          error_message: response.ok ? null : result.error || 'Erreur inconnue',
+          error_message: errorMessage,
         })
         .eq('id', execution.id);
 
@@ -196,16 +186,50 @@ export function useAutomations(): UseAutomationsReturn {
         exec.id === execution.id 
           ? {
               ...exec,
-              status: response.ok ? 'success' : 'error',
+              status: response.ok ? 'success' : 'error' as const,
               execution_data: result,
-              error_message: response.ok ? null : result.error || 'Erreur inconnue',
-            }
+              error_message: errorMessage || undefined,
+            } as AutomationExecutionWithName
           : exec
       ));
+      
+      if (!response.ok) {
+        throw new Error(errorMessage || 'Erreur d\'exécution');
+      }
+      
       return execution.id;
     } catch (error) {
       console.error('Error executing automation:', error);
       const errorMessage = error instanceof Error ? error.message : 'Erreur d\'exécution';
+      
+      // Si nous avons créé une exécution, mettre à jour son statut en erreur
+      if (executionId) {
+        try {
+          await supabase
+            .from('automation_executions')
+            .update({
+              status: 'error',
+              error_message: errorMessage,
+              execution_data: { error: errorMessage }
+            })
+            .eq('id', executionId);
+
+          // Mettre à jour l'état local aussi
+          setExecutions(prev => prev.map(exec => 
+            exec.id === executionId 
+              ? {
+                  ...exec,
+                  status: 'error' as const,
+                  error_message: errorMessage,
+                  execution_data: { error: errorMessage }
+                } as AutomationExecutionWithName
+              : exec
+          ));
+        } catch (updateError) {
+          console.error('Error updating execution status:', updateError);
+        }
+      }
+      
       setError(errorMessage);
       throw new Error(errorMessage);
     } finally {

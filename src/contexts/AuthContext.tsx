@@ -79,46 +79,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setError(null);
       
-      await Promise.race([
-        (async () => {
-          const { data: profile, error: profileError } = await supabase
-            .from('profiles')
-            .select('id, email, full_name, role, created_at')
-            .eq('id', userId)
-            .maybeSingle();
-
-          if (profileError && profileError.code !== 'PGRST116') {
-            throw profileError;
-          }
-
-          const authUser: AuthUser = {
-            id: userId,
-            email,
-            profile: profile ? {
-              ...profile,
-              updated_at: profile.created_at
-            } : undefined,
-          };
-
-          setUser(authUser);
-          setCachedAuth(authUser);
-        })(),
-        new Promise((_, reject) => {
-          setTimeout(() => {
-            reject(new Error('Chargement du profil trop lent'));
-          }, 5000);
-        })
-      ]);
-    } catch (error) {
-      console.error('Error loading profile:', error);
+      // Créer un utilisateur de base immédiatement
       const basicUser: AuthUser = { 
         id: userId, 
         email,
         profile: undefined 
       };
-      setUser(basicUser);
-      setCachedAuth(basicUser);
-      setError(error instanceof Error ? error.message : 'Erreur lors du chargement du profil');
+      
+      // Charger le profil en arrière-plan avec un timeout plus long
+      try {
+        await Promise.race([
+          (async () => {
+            const { data: profile, error: profileError } = await supabase
+              .from('profiles')
+              .select('id, email, full_name, role, created_at')
+              .eq('id', userId)
+              .maybeSingle();
+
+            if (profileError && profileError.code !== 'PGRST116') {
+              console.warn('Erreur profil (non-critique):', profileError);
+              // Ne pas faire d'erreur, continuer avec l'utilisateur de base
+              return;
+            }
+
+            if (profile) {
+              const authUserWithProfile: AuthUser = {
+                id: userId,
+                email,
+                profile: {
+                  ...profile,
+                  updated_at: profile.created_at
+                },
+              };
+              setUser(authUserWithProfile);
+              setCachedAuth(authUserWithProfile);
+            }
+          })(),
+          new Promise((_, reject) => {
+            setTimeout(() => {
+              reject(new Error('Timeout profil'));
+            }, 10000); // Augmenté à 10 secondes
+          })
+        ]);
+      } catch (profileError) {
+        // En cas d'erreur de profil, continuer avec l'utilisateur de base
+        console.warn('Profil non chargé, utilisation des données de base:', profileError);
+        setUser(basicUser);
+        setCachedAuth(basicUser);
+      }
+      
+    } catch (error) {
+      console.error('Error loading user:', error);
+      // En dernier recours, créer un utilisateur minimal
+      const fallbackUser: AuthUser = { 
+        id: userId, 
+        email,
+        profile: undefined 
+      };
+      setUser(fallbackUser);
+      setCachedAuth(fallbackUser);
+      // Ne pas setError ici pour éviter les re-renders en boucle
     } finally {
       setLoading(false);
     }
@@ -174,15 +194,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           })(),
           new Promise((_, reject) => {
             setTimeout(() => {
-              reject(new Error('Connexion trop lente. Veuillez réessayer.'));
-            }, 8000);
+              reject(new Error('Connexion trop lente'));
+            }, 12000); // Augmenté à 12 secondes
           })
         ]);
       } catch (err) {
         console.error('Erreur d\'initialisation auth:', err);
         if (mounted) {
           clearAuthCache();
-          setError(err instanceof Error ? err.message : 'Erreur d\'authentification');
+          // Ne pas setError pour éviter les boucles de re-render
+          console.warn('Auth init failed, continuing without error display');
           setUser(null);
           setLoading(false);
         }
@@ -214,7 +235,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.error('Erreur dans onAuthStateChange:', err);
           if (mounted) {
             clearAuthCache();
-            setError('Erreur de session');
+            // Ne pas setError pour éviter les boucles de re-render
+            console.warn('Auth state change failed, continuing without error display');
             setUser(null);
             setLoading(false);
           }
