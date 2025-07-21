@@ -1,3 +1,5 @@
+export type SettingValue = string | number | boolean | object | null;
+
 export interface Profile {
   id: string;
   email: string;
@@ -31,6 +33,26 @@ export interface Automation {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface AutomationSetting {
+  id: string;
+  automation_id: string;
+  setting_id: string;
+  created_at: string;
+}
+
+export interface AutomationWithSettings extends Automation {
+  automation_settings?: {
+    setting_id: string;
+    settings: {
+      id: string;
+      category: string;
+      key: string;
+      value: SettingValue;
+      description?: string;
+    };
+  }[];
 }
 
 export interface AutomationExecution {

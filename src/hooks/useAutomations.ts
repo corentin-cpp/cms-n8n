@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { Automation, AutomationExecutionWithName } from '../lib/types';
 import { useAuth } from './useAuth';
+import { useAutomationSettings } from './useSettingsHelpers';
+import { useAutomationSettingsLoader } from './useAutomationSettingsLoader';
 
 interface UseAutomationsReturn {
   automations: Automation[];
@@ -19,6 +21,8 @@ interface UseAutomationsReturn {
 
 export function useAutomations(): UseAutomationsReturn {
   const { user } = useAuth();
+  const { getWebhookTimeout, getDefaultWebhookMethod } = useAutomationSettings();
+  const { loadAutomationSettings, getAutomationSetting } = useAutomationSettingsLoader();
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [executions, setExecutions] = useState<AutomationExecutionWithName[]>([]);
   const [loadingPage, setLoading] = useState(true);
@@ -94,6 +98,9 @@ export function useAutomations(): UseAutomationsReturn {
     let executionId: string | null = null;
 
     try {
+      // Charger les paramètres spécifiques à cette automatisation
+      const automationSettings = await loadAutomationSettings(automation.id);
+
       // Create execution record
       const { data: execution, error: executionError } = await supabase
         .from('automation_executions')
@@ -115,17 +122,29 @@ export function useAutomations(): UseAutomationsReturn {
         automations: { name: automation.name }
       } as AutomationExecutionWithName, ...prev.slice(0, 19)]);
 
+      // Utiliser les paramètres d'automatisation si disponibles, sinon les paramètres globaux
+      const webhookTimeout = getAutomationSetting(automationSettings, 'automation.webhook_timeout', getWebhookTimeout()) as number;
+      const method = getAutomationSetting(automationSettings, 'automation.webhook_method', getDefaultWebhookMethod()) as string;
+
       // Call webhook with new configuration
       const requestOptions: RequestInit = {
-        method: automation.webhook_method,
+        method: automation.webhook_method || method,
         headers: {
           'Content-Type': 'application/json',
           ...automation.webhook_headers,
+          // Ajouter les headers personnalisés des paramètres d'automatisation
+          ...(getAutomationSetting(automationSettings, 'automation.webhook_headers', {}) as Record<string, string>),
         },
       };
 
       let response: Response;
       let result: Record<string, unknown>;
+
+      // Combiner les paramètres webhook avec les paramètres personnalisés
+      const webhookParams = {
+        ...automation.webhook_params,
+        ...(getAutomationSetting(automationSettings, 'automation.webhook_params', {}) as Record<string, unknown>),
+      };
 
       // Add body for POST, PUT, PATCH methods
       if (['POST', 'PUT', 'PATCH'].includes(automation.webhook_method)) {
@@ -133,10 +152,15 @@ export function useAutomations(): UseAutomationsReturn {
           automation_id: automation.id,
           execution_id: execution.id,
           timestamp: new Date().toISOString(),
-          ...automation.webhook_params,
+          ...webhookParams,
         });
         
-        response = await fetch(automation.webhook_url, requestOptions);
+        response = await Promise.race([
+          fetch(automation.webhook_url, requestOptions),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Timeout webhook')), webhookTimeout);
+          })
+        ]);
       } else {
         // For GET, DELETE, add params as query string
         const url = new URL(automation.webhook_url);
@@ -153,7 +177,12 @@ export function useAutomations(): UseAutomationsReturn {
           ...automation.webhook_headers,
         };
         
-        response = await fetch(url.toString(), requestOptions);
+        response = await Promise.race([
+          fetch(url.toString(), requestOptions),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Timeout webhook')), webhookTimeout);
+          })
+        ]);
       }
 
       // Parse response
@@ -235,7 +264,7 @@ export function useAutomations(): UseAutomationsReturn {
     } finally {
       setExecuting(null);
     }
-  }, []);
+  }, [getDefaultWebhookMethod, getWebhookTimeout, loadAutomationSettings, getAutomationSetting]);
 
   const toggleAutomation = useCallback(async (automation: Automation) => {
     try {
